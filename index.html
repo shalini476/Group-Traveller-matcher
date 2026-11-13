@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Group Travel Matcher | Solo Travellers, Shared Journeys</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- ========================================================================= -->
+  <!-- Top Navigation Bar & Active Traveller Persona Switcher                     -->
+  <!-- ========================================================================= -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand" onclick="app.showView('seeker')">
+        <div class="brand-logo">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.3c.4-.2.6-.6.5-1.1z"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">GroupMatcher</span>
+          <span class="brand-badge">Booking.com Hackathon</span>
+        </div>
+      </div>
+
+      <!-- Navigation Links -->
+      <nav class="nav-links">
+        <!-- Seeker Flow Link (Dynamically shown only when in Seeker flow) -->
+        <button class="nav-btn active" data-view="seeker" id="navBtnSeeker" onclick="app.showView('seeker')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <span>Find Groups</span>
+        </button>
+
+        <!-- Creator Flow Link (Dynamically shown only when in Creator flow) -->
+        <button class="nav-btn" data-view="creator" id="navBtnCreator" onclick="app.showView('creator')" style="display:none;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+          <span>Create Group</span>
+        </button>
+
+        <!-- Common Links (Always Visible) -->
+        <button class="nav-btn" data-view="groupHub" id="navBtnGroupHub" onclick="app.showView('groupHub')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Common Group Page</span>
+          <span class="nav-pill" id="groupHubBadge" style="display:none;">Active</span>
+        </button>
+        <button class="nav-btn" data-view="allGroups" id="navBtnAllGroups" onclick="app.showView('allGroups')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+          <span>All Groups (<span id="allGroupsCount">12</span>)</span>
+        </button>
+        <button class="nav-btn" data-view="travellers" id="navBtnTravellers" onclick="app.showView('travellers')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Travellers (24)</span>
+        </button>
+      </nav>
+
+      <!-- Active User & Role Controls -->
+      <div class="user-persona-section">
+        <!-- Interactive Active Flow Switcher Pill -->
+        <button type="button" class="role-mode-pill" id="roleModePill" onclick="app.toggleRole()" title="Click to switch between Seeker and Creator flows">
+          <span class="role-pill-badge seeker" id="rolePillBadge">Seeker Flow</span>
+          <span class="role-pill-action">⇄ Switch</span>
+        </button>
+
+        <div class="persona-card" id="activeUserPill" onclick="app.togglePersonaDropdown()">
+          <div class="user-avatar" id="activeUserAvatar">ST</div>
+          <div class="user-info">
+            <span class="user-greeting">Acting as:</span>
+            <span class="user-name" id="activeUserName">Sarah Thomas</span>
+          </div>
+          <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+
+        <!-- Dropdown Menu for Quick Switching -->
+        <div class="persona-dropdown" id="personaDropdown">
+          <div class="dropdown-header">
+            <span>Active Flow & Persona</span>
+            <button class="btn-text" onclick="app.openSignupModal()">+ New Profile</button>
+          </div>
+
+          <!-- Flow Toggle Controls -->
+          <div class="role-selector-row">
+            <span class="role-selector-label">Active Flow:</span>
+            <div class="role-toggle-group">
+              <button type="button" class="role-toggle-btn active" id="btnRoleSeeker" onclick="app.setRole('seeker')">
+                🔍 Seeker Flow
+              </button>
+              <button type="button" class="role-toggle-btn" id="btnRoleCreator" onclick="app.setRole('creator')">
+                ➕ Creator Flow
+              </button>
+            </div>
+          </div>
+
+          <div class="persona-quick-options">
+            <button class="persona-option-btn" onclick="app.switchPersona('T-001')">
+              <span class="avatar-sm">ST</span>
+              <div class="opt-desc">
+                <strong>Sarah Thomas (Creator)</strong>
+                <small>Kyoto 10–15 Apr · Budget ₹60k</small>
+              </div>
+            </button>
+            <button class="persona-option-btn" onclick="app.switchPersona('T-002')">
+              <span class="avatar-sm">PS</span>
+              <div class="opt-desc">
+                <strong>Priya Shah (Seeker)</strong>
+                <small>Kyoto 9–16 Apr · Budget ₹62k</small>
+              </div>
+            </button>
+          </div>
+          <div class="dropdown-footer">
+            <button class="btn-outline full-width" onclick="app.showView('travellers'); app.closePersonaDropdown();">
+              Browse All 24 Mock Profiles
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- Demo Shortcut Toolbar for Judges                                          -->
+  <!-- ========================================================================= -->
+  <aside class="demo-banner">
+    <div class="demo-container">
+      <div class="demo-tag">
+        <span class="pulse-dot"></span>
+        <strong>Live Demo Quick-Picks:</strong>
+      </div>
+      <div class="demo-actions">
+        <button class="demo-chip" onclick="app.quickScenarioA()">
+          <span>Scenario A:</span> Sarah (Creator of G-01)
+        </button>
+        <button class="demo-chip" onclick="app.quickScenarioB()">
+          <span>Scenario B:</span> Priya (Search & Match G-01)
+        </button>
+        <button class="demo-chip accent" onclick="app.quickOpenCommonPage('G-01')">
+          <span>Wow Factor:</span> Tinder Hotel Voting Engine
+        </button>
+        <button class="demo-chip" id="demoBtnAutoDecline" onclick="app.toggleSimulatedExpiringTrip()">
+          <span>Feature 4:</span> ⏳ Test Auto-Decline (Trip in ≤5d)
+        </button>
+      </div>
+      <div class="demo-extra">
+        <a href="#rules-modal" onclick="app.openRulesModal(); return false;">View 6 Rules Spec</a>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========================================================================= -->
+  <!-- MAIN CONTENT CONTAINER                                                    -->
+  <!-- ========================================================================= -->
+  <main class="main-container">
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 1: SEEKER SEARCH & MATCH FLOW (M3, M4, G1)                         -->
+    <!-- ======================================================================= -->
+    <section id="view-seeker" class="content-view active">
+      <div class="view-hero">
+        <div class="hero-content">
+          <h1>Find Your Perfect Travel Tribe</h1>
+          <p>Match with verified group posts based on destination, dates, budget compatibility, shared interests, and gender preferences.</p>
+        </div>
+      </div>
+
+      <!-- Search Criteria Form Card -->
+      <div class="search-panel-card">
+        <form id="seekerSearchForm" onsubmit="app.handleSearchSubmit(event)">
+          <div class="search-grid">
+            <!-- Destination -->
+            <div class="form-group">
+              <label for="searchCity">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                Destination City
+              </label>
+              <select id="searchCity" required>
+                <option value="Kyoto" selected>Kyoto (Japan)</option>
+                <option value="Tokyo">Tokyo (Japan)</option>
+                <option value="Osaka">Osaka (Japan)</option>
+                <option value="Dubai">Dubai (UAE)</option>
+                <option value="Abu Dhabi">Abu Dhabi (UAE)</option>
+              </select>
+              <span class="field-hint">Catalog: 5 cities</span>
+            </div>
+
+            <!-- Check-in Date -->
+            <div class="form-group">
+              <label for="searchCheckIn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                Check-in Date
+              </label>
+              <input type="date" id="searchCheckIn" min="2027-04-01" max="2027-04-19" value="2027-04-09" required>
+              <span class="field-hint">1 to 20 April 2027</span>
+            </div>
+
+            <!-- Check-out Date -->
+            <div class="form-group">
+              <label for="searchCheckOut">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                Check-out Date
+              </label>
+              <input type="date" id="searchCheckOut" min="2027-04-02" max="2027-04-20" value="2027-04-16" required>
+              <span class="field-hint" id="searchNightsHint">7 nights</span>
+            </div>
+
+            <!-- Budget in INR -->
+            <div class="form-group">
+              <label for="searchBudget">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                Budget per Person (₹)
+              </label>
+              <input type="number" id="searchBudget" min="10000" max="200000" step="1000" value="62000" required>
+              <span class="field-hint">40% overlap rule applies</span>
+            </div>
+
+            <!-- Gender Preference -->
+            <div class="form-group">
+              <label for="searchGenderPref">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                Gender Preference
+              </label>
+              <select id="searchGenderPref">
+                <option value="SAME_GENDER" selected>Same Gender Only</option>
+                <option value="ANY">Any Gender</option>
+              </select>
+              <span class="field-hint">Mutual matching rule</span>
+            </div>
+
+            <!-- Search CTA -->
+            <div class="form-group form-action">
+              <button type="submit" class="btn-primary search-submit-btn" id="searchBtn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                Search Matches
+              </button>
+            </div>
+          </div>
+
+          <!-- Interest Tags Selector (Clickable pills) -->
+          <div class="interests-picker-section">
+            <div class="interests-header">
+              <span class="section-subheading">Your Interests (Pick at least 2 to match group owners):</span>
+              <span class="interests-count-pill" id="selectedInterestsCount">3 selected</span>
+            </div>
+            <div class="interest-chips-container" id="searchInterestChips">
+              <!-- Dynamically populated from interests.json -->
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- Live Search Results Header & Filter Bar (G1) -->
+      <div class="results-header-section" id="resultsHeader">
+        <div class="results-count-title">
+          <h2>Matching Groups</h2>
+          <span class="results-badge" id="resultsCountBadge">Evaluating 6 rules...</span>
+        </div>
+
+        <!-- Filter Bar (Good-to-have G1) -->
+        <div class="results-filter-bar">
+          <div class="filter-group">
+            <label>Filter by Shared Interest:</label>
+            <select id="filterInterestSelect" onchange="app.applyClientFilters()">
+              <option value="ALL">All Interests</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Gender Composition:</label>
+            <select id="filterGenderSelect" onchange="app.applyClientFilters()">
+              <option value="ALL">All Groups</option>
+              <option value="FEMALE_ONLY">Female Only</option>
+              <option value="MALE_ONLY">Male Only</option>
+              <option value="MIXED">Mixed / Any</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Sort By:</label>
+            <select id="sortBySelect" onchange="app.applyClientFilters()">
+              <option value="SCORE">Highest Compatibility</option>
+              <option value="NIGHTS">Most Shared Nights</option>
+              <option value="BUDGET_LOW">Lowest Budget</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Match Cards Container -->
+      <div class="match-cards-grid" id="matchResultsGrid">
+        <!-- Rendered via JS -->
+      </div>
+
+      <!-- Empty State Container -->
+      <div class="empty-state-card" id="emptyStateContainer" style="display:none;">
+        <div class="empty-icon">🏖️</div>
+        <h3>No Exact Matches Found for This Criteria</h3>
+        <p id="emptyStateMessage">None of the existing groups passed all 6 strict matching rules. The rules protect your travel preferences!</p>
+        <div class="empty-suggestions">
+          <h4>💡 Recommended Actions:</h4>
+          <ul>
+            <li>Extend your date window by 1–2 nights to overlap with Kyoto groups (e.g. 10–15 April).</li>
+            <li>Select more interest tags (e.g., Temples, Street Food, Photography).</li>
+            <li>Adjust your budget range closer to ₹60,000.</li>
+          </ul>
+        </div>
+        <button class="btn-secondary" onclick="app.resetSearchToScenarioB()">Reset to Priya's Matching Search</button>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 2: GROUP CREATOR FLOW (M2)                                         -->
+    <!-- ======================================================================= -->
+    <section id="view-creator" class="content-view">
+      <div class="view-hero">
+        <div class="hero-content">
+          <h1>Create a Group Trip Post</h1>
+          <p>Organize a travel group for solo companions. Propose your itinerary, set your budget, and review join requests.</p>
+        </div>
+      </div>
+
+      <div class="form-container-card">
+        <form id="createGroupForm" onsubmit="app.handleCreateGroupSubmit(event)">
+          <div class="form-row">
+            <div class="form-group flex-2">
+              <label for="createGroupName">Group Post Title *</label>
+              <input type="text" id="createGroupName" placeholder="e.g. Kyoto Spring Temples & Food Crawl" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="createGroupCity">Destination City *</label>
+              <select id="createGroupCity" required>
+                <option value="Kyoto">Kyoto (Japan)</option>
+                <option value="Tokyo">Tokyo (Japan)</option>
+                <option value="Osaka">Osaka (Japan)</option>
+                <option value="Dubai">Dubai (UAE)</option>
+                <option value="Abu Dhabi">Abu Dhabi (UAE)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="createGroupCheckIn">Check-in Date *</label>
+              <input type="date" id="createGroupCheckIn" min="2027-04-01" max="2027-04-19" value="2027-04-10" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="createGroupCheckOut">Check-out Date *</label>
+              <input type="date" id="createGroupCheckOut" min="2027-04-02" max="2027-04-20" value="2027-04-15" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="createGroupMaxSize">Group Size Wanted *</label>
+              <select id="createGroupMaxSize" required>
+                <option value="2">2 People (You + 1 more)</option>
+                <option value="3" selected>3 People (You + 2 more)</option>
+                <option value="4">4 People (You + 3 more)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="createGroupBudget">Approx Budget per Person (₹) *</label>
+              <input type="number" id="createGroupBudget" min="10000" max="250000" step="1000" value="60000" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="createGroupItinerary">Proposed Itinerary & Travel Style *</label>
+            <textarea id="createGroupItinerary" rows="4" placeholder="Detail your travel vision, morning habits, must-see landmarks, and dining preferences..." required>Sunrise at Fushimi Inari, sampling street food at Nishiki Market, bamboo grove stroll in Arashiyama, and evening photography in Gion.</textarea>
+            <div class="quick-preset-bar">
+              <span class="preset-label">Quick Ideas:</span>
+              <button type="button" class="preset-chip" onclick="app.setItineraryPreset('kyoto')">🌸 Kyoto Cultural Walk</button>
+              <button type="button" class="preset-chip" onclick="app.setItineraryPreset('tokyo')">🗼 Tokyo Street & Tech</button>
+              <button type="button" class="preset-chip" onclick="app.setItineraryPreset('dubai')">🏜️ Dubai Desert & Luxury</button>
+            </div>
+          </div>
+
+          <div class="creator-profile-summary-box">
+            <div class="summary-avatar" id="creatorPreviewAvatar">ST</div>
+            <div class="summary-details">
+              <strong>Posting as: <span id="creatorPreviewName">Sarah Thomas</span></strong>
+              <p id="creatorPreviewMeta">Gender: FEMALE · Preference: SAME_GENDER · Home: Bengaluru (BLR)</p>
+            </div>
+          </div>
+
+          <div class="form-actions-bar">
+            <button type="submit" class="btn-primary" id="publishGroupBtn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              Publish Group Post
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 3: COMMON GROUP PAGE & TINDER-STYLE HOTEL VOTING ENGINE (M6 & WOW) -->
+    <!-- ======================================================================= -->
+    <section id="view-groupHub" class="content-view">
+      <!-- Group Header Hero -->
+      <div class="group-hero-card" id="groupHeroCard">
+        <div class="group-hero-overlay">
+          <div class="group-hero-content">
+            <div class="group-hero-top">
+              <span class="group-city-tag" id="ghCityTag">Kyoto, Japan</span>
+              <span class="group-status-pill" id="ghStatusPill">Open for Members</span>
+            </div>
+            <h1 id="ghGroupName">Kyoto Spring Temples</h1>
+            <p id="ghItinerary">Fushimi Inari at sunrise, Nishiki Market lunch, Gion walk, photo day in Arashiyama.</p>
+            <div class="group-meta-badges">
+              <div class="meta-item">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>
+                <span id="ghDates">10–15 Apr 2027 (5 nights)</span>
+              </div>
+              <div class="meta-item">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                <span id="ghBudget">₹60,000 / person</span>
+              </div>
+              <div class="meta-item">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <span id="ghMembersCount">2 of 3 Members</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Group Page Split Layout: Left (Consensus Hotels) | Right (Members & Chat) -->
+      <div class="group-dashboard-layout">
+        <!-- Main Column: Hotels & Tinder Voting Engine -->
+        <div class="dashboard-main-col">
+
+          <!-- Creator Pending Join Requests Panel (M5) -->
+          <div class="pending-requests-card" id="creatorRequestsPanel" style="display:none;">
+            <div class="card-header-flex">
+              <div class="header-left">
+                <span class="notify-icon-badge">🔔</span>
+                <h3>Pending Member Join Requests</h3>
+              </div>
+              <span class="badge-count" id="pendingRequestsCountBadge">1 Pending</span>
+            </div>
+            <div class="requests-list" id="pendingRequestsList">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Finalized Booking Banner (if booked) -->
+          <div class="booking-confirmed-banner" id="bookingConfirmedBanner" style="display:none;">
+            <div class="banner-icon">🎉</div>
+            <div class="banner-body">
+              <h3>Group Hotel Booking Confirmed!</h3>
+              <p id="bookingConfirmedDetails">Reference #BKG-KYO-2027-01 · Gion Corner Hotel · Total ₹23,800 · Your Split: ₹11,900</p>
+            </div>
+            <button class="btn-light-outline" onclick="app.viewBookingReceipt()">View Voucher</button>
+          </div>
+
+          <!-- The "Wow Factor" Consensus Engine Controls -->
+          <div class="consensus-engine-header">
+            <div class="consensus-title-area">
+              <div class="title-with-pill">
+                <h2>Smart Consensus Booking Engine</h2>
+                <span class="feature-tag">Tinder-style Voting</span>
+              </div>
+              <p>All approved members vote on hotel options. The <strong>Finalize Booking CTA</strong> remains locked until 100% unanimous agreement is reached!</p>
+            </div>
+
+            <!-- Consensus Progress Bar -->
+            <div class="consensus-meter-card" id="consensusStatusCard">
+              <div class="meter-info">
+                <span id="consensusStatusText">🔒 Consensus Status: In Progress</span>
+                <span class="meter-pct" id="consensusStatusPct">0% agreed</span>
+              </div>
+              <div class="meter-track">
+                <div class="meter-fill" id="consensusMeterFill" style="width: 0%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hotel Sorting & Filters -->
+          <div class="hotel-filters-bar">
+            <div class="filter-count">
+              <span id="hotelsCountText">Searching available hotels in Kyoto...</span>
+            </div>
+            <div class="filter-controls">
+              <label>Sort By:</label>
+              <select id="hotelSortSelect" onchange="app.renderGroupHotels()">
+                <option value="RECOMMENDED">Recommended (Consensus First)</option>
+                <option value="RATING_DESC">Guest Rating (High to Low)</option>
+                <option value="PRICE_ASC">Per-Member Cost (Lowest First)</option>
+                <option value="TOTAL_ASC">Total Stay Cost (Lowest First)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Hotel Voting Cards Deck -->
+          <div class="hotel-cards-list" id="groupHotelsList">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Sidebar Column: Approved Members & Group Coordination Chat (S1) -->
+        <aside class="dashboard-sidebar-col">
+          <!-- Members Roster Card -->
+          <div class="sidebar-card">
+            <div class="sidebar-card-header">
+              <h3>Group Members (<span id="memberCountHeader">2</span>)</h3>
+              <button class="btn-text small" onclick="app.showGroupMembersModal()">View Details</button>
+            </div>
+            <div class="approved-members-list" id="approvedMembersList">
+              <!-- Rendered via JS -->
+            </div>
+            <!-- Quick Member Vote Persona Switcher (For Demo Convenience) -->
+            <div class="demo-vote-switcher-box">
+              <label>Quick Vote Persona:</label>
+              <div class="switcher-buttons" id="votingPersonaButtons">
+                <!-- Dynamically populated with buttons for Sarah, Priya, etc. -->
+              </div>
+              <small class="hint-muted">Click to cast votes as that member during demo!</small>
+            </div>
+          </div>
+
+          <!-- Group Coordination Chat (Stretch S1) -->
+          <div class="sidebar-card chat-card">
+            <div class="sidebar-card-header">
+              <div class="header-with-dot">
+                <span class="status-dot-green"></span>
+                <h3>Group Discussion</h3>
+              </div>
+              <span class="badge-subtle">Online</span>
+            </div>
+            <div class="chat-messages-container" id="chatMessagesContainer">
+              <!-- Messages -->
+            </div>
+            <form class="chat-input-form" onsubmit="app.handleSendChatMessage(event)">
+              <input type="text" id="chatInputMessage" placeholder="Discuss hotel options or timing..." required>
+              <button type="submit" class="btn-send">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              </button>
+            </form>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 4: ALL OPEN GROUPS DIRECTORY                                       -->
+    <!-- ======================================================================= -->
+    <section id="view-allGroups" class="content-view">
+      <div class="view-hero">
+        <div class="hero-content">
+          <h1>Explore All Open Group Posts</h1>
+          <p>Browse pre-seeded groups from mock data across Tokyo, Kyoto, Osaka, Dubai, and Abu Dhabi.</p>
+        </div>
+      </div>
+
+      <!-- City Filter Tabs -->
+      <div class="city-filter-tabs" id="allGroupsCityTabs">
+        <button class="city-tab active" onclick="app.filterAllGroupsByCity('ALL')">All Cities</button>
+        <button class="city-tab" onclick="app.filterAllGroupsByCity('Kyoto')">Kyoto</button>
+        <button class="city-tab" onclick="app.filterAllGroupsByCity('Tokyo')">Tokyo</button>
+        <button class="city-tab" onclick="app.filterAllGroupsByCity('Osaka')">Osaka</button>
+        <button class="city-tab" onclick="app.filterAllGroupsByCity('Dubai')">Dubai</button>
+        <button class="city-tab" onclick="app.filterAllGroupsByCity('Abu Dhabi')">Abu Dhabi</button>
+      </div>
+
+      <!-- All Groups Grid -->
+      <div class="all-groups-grid" id="allGroupsGrid">
+        <!-- Rendered via JS -->
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- VIEW 5: TRAVELLERS DIRECTORY (G2)                                       -->
+    <!-- ======================================================================= -->
+    <section id="view-travellers" class="content-view">
+      <div class="view-hero">
+        <div class="hero-content">
+          <h1>Community Travellers Directory</h1>
+          <p>All 24 mock travellers from the dataset. Inspect profiles, interests, and switch identities with one click.</p>
+        </div>
+      </div>
+
+      <div class="travellers-grid" id="travellersGrid">
+        <!-- Rendered via JS -->
+      </div>
+    </section>
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- MODALS                                                                    -->
+  <!-- ========================================================================= -->
+
+  <!-- Modal 1: Sign Up / New Traveller Profile (M1) -->
+  <div class="modal-backdrop" id="signupModal" style="display:none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2>Create Traveller Profile</h2>
+        <button class="modal-close-btn" onclick="app.closeModal('signupModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="signupForm" onsubmit="app.handleSignupSubmit(event)">
+          <div class="form-group">
+            <label for="newTravellerName">Full Name *</label>
+            <input type="text" id="newTravellerName" placeholder="e.g. Maya Sharma" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="newTravellerGender">Gender *</label>
+              <select id="newTravellerGender" required>
+                <option value="FEMALE" selected>Female</option>
+                <option value="MALE">Male</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="newTravellerAge">Age</label>
+              <input type="number" id="newTravellerAge" min="18" max="75" value="26">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="newTravellerCity">Origin City</label>
+              <input type="text" id="newTravellerCity" placeholder="e.g. Bengaluru" value="Bengaluru">
+            </div>
+            <div class="form-group flex-1">
+              <label for="newTravellerPref">Gender Preference</label>
+              <select id="newTravellerPref">
+                <option value="ANY">Any Gender</option>
+                <option value="SAME_GENDER" selected>Same Gender Only</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Select Personal Interests (Pick 2 or more):</label>
+            <div class="interest-chips-container small" id="signupInterestChips">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" onclick="app.closeModal('signupModal')">Cancel</button>
+            <button type="submit" class="btn-primary">Save Profile & Act as User</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Traveller Profile Details Modal (G2) -->
+  <div class="modal-backdrop" id="profileDetailModal" style="display:none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2>Traveller Profile</h2>
+        <button class="modal-close-btn" onclick="app.closeModal('profileDetailModal')">&times;</button>
+      </div>
+      <div class="modal-body" id="profileDetailBody">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Booking Confirmation Voucher Modal (M6) -->
+  <div class="modal-backdrop" id="bookingVoucherModal" style="display:none;">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h2>Official Group Booking Confirmation</h2>
+        <button class="modal-close-btn" onclick="app.closeModal('bookingVoucherModal')">&times;</button>
+      </div>
+      <div class="modal-body" id="bookingVoucherBody">
+        <!-- Rendered via JS -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="window.print()">Print Receipt</button>
+        <button class="btn-primary" onclick="app.closeModal('bookingVoucherModal')">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 4: 6 Matching Rules Reference Modal -->
+  <div class="modal-backdrop" id="rulesModal" style="display:none;">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h2>Hackathon Problem 3: The 6 Strict Matching Rules</h2>
+        <button class="modal-close-btn" onclick="app.closeModal('rulesModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="rules-table-container">
+          <table class="rules-spec-table">
+            <thead>
+              <tr>
+                <th>Rule</th>
+                <th>Logic & Constraints</th>
+                <th>Backend Implementation</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>1. Exact Destination</strong></td>
+                <td>Both travel to the exact same city (Tokyo, Kyoto, Osaka, Dubai, Abu Dhabi).</td>
+                <td>Case-insensitive exact string match.</td>
+              </tr>
+              <tr>
+                <td><strong>2. Dates Overlap</strong></td>
+                <td>Group and seeker share at least 2 nights in destination.</td>
+                <td>Calculated via date window intersection: <code>shared_nights &gt;= 2</code>. Dynamic sliding scale: ≥95% (✓ Green), 50–94% (⚠ Yellow), &lt;50% (✗ Red).</td>
+              </tr>
+              <tr>
+                <td><strong>3. Budget Compatibility</strong></td>
+                <td>Difference between budgets is at most 40% of the lower budget.</td>
+                <td><code>abs(b1 - b2) &lt;= 0.40 * min(b1, b2)</code>. Closeness scale: ≥95% (✓ Green), 50–94% (⚠ Yellow), &lt;50% (✗ Red).</td>
+              </tr>
+              <tr>
+                <td><strong>4. Shared Interests</strong></td>
+                <td>Seeker shares at least 2 interests with the group owner.</td>
+                <td><code>len(seeker_interests &amp; owner_interests) &gt;= 2</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>5. Gender Preference</strong></td>
+                <td>Mutual compatibility: seeker allows owner AND owner allows seeker.</td>
+                <td>Evaluates <code>SAME_GENDER</code> vs <code>ANY</code> mutually both ways.</td>
+              </tr>
+              <tr>
+                <td><strong>6. Group Size</strong></td>
+                <td>Current member count + seeker does not exceed group's <code>max_size</code>.</td>
+                <td><code>len(member_ids) + 1 &lt;= max_size</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top:1rem; padding:0.85rem 1rem; background:#fef2f2; border:1px solid #fca5a5; border-radius:8px; font-size:0.8rem; color:#991b1b;">
+            <strong>Feature 4 – Auto-Decline Imminent Trips Policy:</strong> Join requests for groups whose <code>check_in</code> departure is within 5 days or less of the current date are automatically rejected by the system with a clear status notice.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="app.closeModal('rulesModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confetti Canvas for Unanimous Consensus Celebration -->
+  <canvas id="confettiCanvas" class="confetti-canvas"></canvas>
+
+  <!-- Notification Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Application Script -->
+  <script src="app.js"></script>
+</body>
+</html>
