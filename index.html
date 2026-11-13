@@ -22,7 +22,7 @@
           </svg>
         </div>
         <div class="brand-text">
-          <span class="brand-name">GroupMatcher</span>
+          <span class="brand-name">WanderSync</span>
           <span class="brand-badge">Booking.com Hackathon</span>
         </div>
       </div>
@@ -358,6 +358,14 @@
               <label for="createGroupBudget">Approx Budget per Person (₹) *</label>
               <input type="number" id="createGroupBudget" min="10000" max="250000" step="1000" value="60000" required>
             </div>
+            <div class="form-group flex-1">
+              <label for="createGroupActivityLevel">Activity Level *</label>
+              <select id="createGroupActivityLevel" required>
+                <option value="Easy">Easy (Casual / Relaxed)</option>
+                <option value="Medium" selected>Medium (Standard Walking)</option>
+                <option value="Hard">Hard (Stairs / Hiking / Intensive)</option>
+              </select>
+            </div>
           </div>
 
           <div class="form-group">
@@ -386,6 +394,19 @@
             </button>
           </div>
         </form>
+      </div>
+
+      <!-- Creator Dashboard: Active Posts Management (Feature 4) -->
+      <div class="creator-dashboard-posts" id="creatorActivePostsSection">
+        <div class="creator-dashboard-posts-header">
+          <div>
+            <h2>Your Active Group Posts (Creator Dashboard)</h2>
+            <p>Manage your published trip listings, update itineraries, or delete cancelled posts.</p>
+          </div>
+        </div>
+        <div id="creatorActivePostsList" class="creator-posts-grid">
+          <!-- Rendered dynamically via JS -->
+        </div>
       </div>
     </section>
 
@@ -416,6 +437,14 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
                 <span id="ghMembersCount">2 of 3 Members</span>
               </div>
+              <div class="meta-item">
+                <span id="ghActivityBadge" class="activity-pill activity-medium">⚡ Medium Activity</span>
+              </div>
+            </div>
+            <!-- Creator Group Management Buttons (Feature 4) -->
+            <div id="creatorGroupHeroActions" class="creator-hero-actions" style="display:none; margin-top:0.85rem;">
+              <button class="btn-hero-action edit" onclick="app.openEditGroupModal(app.state.activeGroupId)">✏️ Edit Itinerary</button>
+              <button class="btn-hero-action delete" onclick="app.handleDeleteGroup(app.state.activeGroupId)">🗑️ Delete Trip</button>
             </div>
           </div>
         </div>
@@ -425,6 +454,9 @@
       <div class="group-dashboard-layout">
         <!-- Main Column: Hotels & Tinder Voting Engine -->
         <div class="dashboard-main-col">
+
+          <!-- Critical Dropout Warning Banner (Feature 5 Scenario B) -->
+          <div class="critical-dropout-banner" id="dropoutWarningBanner" style="display:none;"></div>
 
           <!-- Creator Pending Join Requests Panel (M5) -->
           <div class="pending-requests-card" id="creatorRequestsPanel" style="display:none;">
@@ -450,20 +482,20 @@
             <button class="btn-light-outline" onclick="app.viewBookingReceipt()">View Voucher</button>
           </div>
 
-          <!-- The "Wow Factor" Consensus Engine Controls -->
+          <!-- The "Wow Factor" Consensus Engine Controls (Feature 1: 60% Consensus Threshold) -->
           <div class="consensus-engine-header">
             <div class="consensus-title-area">
               <div class="title-with-pill">
                 <h2>Smart Consensus Booking Engine</h2>
                 <span class="feature-tag">Tinder-style Voting</span>
               </div>
-              <p>All approved members vote on hotel options. The <strong>Finalize Booking CTA</strong> remains locked until 100% unanimous agreement is reached!</p>
+              <p>All approved members vote on hotel options. The <strong>Finalize Booking CTA</strong> unlocks as soon as at least 60% of approved members agree on the same hotel option!</p>
             </div>
 
             <!-- Consensus Progress Bar -->
             <div class="consensus-meter-card" id="consensusStatusCard">
               <div class="meter-info">
-                <span id="consensusStatusText">🔒 Consensus Status: In Progress</span>
+                <span id="consensusStatusText">🔒 Consensus Status: 60% Needed to Unlock</span>
                 <span class="meter-pct" id="consensusStatusPct">0% agreed</span>
               </div>
               <div class="meter-track">
@@ -504,6 +536,13 @@
             </div>
             <div class="approved-members-list" id="approvedMembersList">
               <!-- Rendered via JS -->
+            </div>
+            <!-- Member Dropout Control (Feature 5) -->
+            <div id="dropoutActionContainer" style="display:none; margin: 0.5rem 0 1rem;">
+              <button class="btn-leave-group" id="btnDropoutGroup" onclick="app.handleDropoutClick()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                Drop Out / Leave Group
+              </button>
             </div>
             <!-- Quick Member Vote Persona Switcher (For Demo Convenience) -->
             <div class="demo-vote-switcher-box">
@@ -727,6 +766,82 @@
       </div>
       <div class="modal-footer">
         <button class="btn-primary" onclick="app.closeModal('rulesModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Edit Group Trip Itinerary & Details Modal (Feature 4) -->
+  <div class="modal-backdrop" id="editGroupModal" style="display:none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2>Edit Group Trip Itinerary</h2>
+        <button class="modal-close-btn" onclick="app.closeModal('editGroupModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="editGroupForm" onsubmit="app.handleEditGroupSubmit(event)">
+          <input type="hidden" id="editGroupId">
+
+          <!-- Notice when pending join requests prevent date/city changes -->
+          <div id="editPendingWarning" class="edit-pending-notice" style="display:none;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M3.6 20.4 12 3.6l8.4 16.8z"/></svg>
+            <div>
+              <strong>Locked Fields Notice:</strong>
+              <p>Destination city and travel dates are locked because join requests are currently pending review.</p>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="editGroupName">Group Post Title *</label>
+            <input type="text" id="editGroupName" required>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="editGroupCity">Destination City</label>
+              <select id="editGroupCity">
+                <option value="Kyoto">Kyoto (Japan)</option>
+                <option value="Tokyo">Tokyo (Japan)</option>
+                <option value="Osaka">Osaka (Japan)</option>
+                <option value="Dubai">Dubai (UAE)</option>
+                <option value="Abu Dhabi">Abu Dhabi (UAE)</option>
+              </select>
+              <small class="field-hint" id="editCityHint">Locked if requests pending</small>
+            </div>
+            <div class="form-group flex-1">
+              <label for="editGroupActivityLevel">Activity Level *</label>
+              <select id="editGroupActivityLevel" required>
+                <option value="Easy">Easy (Casual / Relaxed)</option>
+                <option value="Medium">Medium (Standard Walking)</option>
+                <option value="Hard">Hard (Stairs / Hiking / Intensive)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="editGroupCheckIn">Check-in Date</label>
+              <input type="date" id="editGroupCheckIn" min="2027-04-01" max="2027-04-19" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="editGroupCheckOut">Check-out Date</label>
+              <input type="date" id="editGroupCheckOut" min="2027-04-02" max="2027-04-20" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="editGroupBudget">Budget per Person (₹) *</label>
+              <input type="number" id="editGroupBudget" min="10000" max="250000" step="1000" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="editGroupItinerary">Proposed Text Itinerary & Travel Style *</label>
+            <textarea id="editGroupItinerary" rows="4" placeholder="Update the trip vision, landmarks, or walking pace..." required></textarea>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-secondary" onclick="app.closeModal('editGroupModal')">Cancel</button>
+            <button type="submit" class="btn-primary" id="btnSaveGroupEdit">Save Changes</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

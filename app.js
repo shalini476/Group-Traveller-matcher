@@ -127,10 +127,19 @@ const app = {
     if (cName) cName.textContent = user.name;
     if (cMeta) cMeta.textContent = `Gender: ${user.gender} · Preference: ${user.gender_preference} · Home: ${user.home_city || 'India'}`;
 
-    // If on Common Page, refresh voting controls
+    // If on Creator Flow view, refresh active posts
+    if (this.state.currentView === 'creator') {
+      this.renderCreatorActivePosts();
+    }
+
+    // If on Common Page, refresh voting controls and data
     if (this.state.currentView === 'groupHub') {
-      this.renderGroupMembersRoster();
-      this.renderGroupHotels();
+      if (this.state.activeGroupId) {
+        this.loadGroupData(this.state.activeGroupId);
+      } else {
+        this.renderGroupMembersRoster();
+        this.renderGroupHotels();
+      }
     }
   },
 
@@ -346,6 +355,8 @@ const app = {
       this.renderTravellersGrid();
     } else if (viewId === 'groupHub' && this.state.activeGroupId) {
       this.loadGroupData(this.state.activeGroupId);
+    } else if (viewId === 'creator') {
+      this.renderCreatorActivePosts();
     }
   },
 
@@ -539,7 +550,10 @@ const app = {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               ${score}% Match
             </span>
-            <span class="card-city-pill">${group.city}</span>
+            <div style="display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;">
+              <span class="card-city-pill">${group.city}</span>
+              <span class="activity-pill activity-${(group.activity_level || 'Medium').toLowerCase()}">⚡ ${group.activity_level || 'Medium'}</span>
+            </div>
           </div>
 
           <div class="card-main-content">
@@ -599,10 +613,31 @@ const app = {
 
               const renderRuleItem = (ruleKey, title, defaultDetail) => {
                 const r = breakdown[ruleKey] || {};
-                const color = r.color || 'green';
-                const marker = r.marker || '✓';
+                let color = r.color || 'green';
+                let marker = r.marker || '✓';
                 const scorePct = r.score_pct;
                 const detail = r.detail || defaultDetail;
+
+                // Feature 3: Dynamic Color-Coding for the Match Scorecard
+                // Green Check (✓): ONLY if that specific rule scores 95% or higher
+                // Yellow Warning (⚠): if rule drags score down (50% <= score < 95%)
+                // Red Alert (✗): if rule significantly drags score down (< 50% or failed)
+                if (scorePct !== undefined && scorePct !== null) {
+                  if (scorePct >= 95.0) {
+                    color = 'green';
+                    marker = '✓';
+                  } else if (scorePct >= 50.0) {
+                    color = 'yellow';
+                    marker = '⚠';
+                  } else {
+                    color = 'red';
+                    marker = '✗';
+                  }
+                } else if (r.pass === false) {
+                  color = 'red';
+                  marker = '✗';
+                }
+
                 const badgeHtml = (scorePct !== undefined && scorePct !== null)
                   ? `<span class="rule-score-badge ${color}">${scorePct}%</span>`
                   : '';
@@ -612,10 +647,10 @@ const app = {
                     <span class="rule-marker ${color}">${marker}</span>
                     <div class="rule-text ${color}">
                       <div class="rule-text-header">
-                        <strong>${title}</strong>
+                        <strong class="rule-title ${color}">${title}</strong>
                         ${badgeHtml}
                       </div>
-                      <p>${detail}</p>
+                      <p class="rule-detail ${color}">${detail}</p>
                     </div>
                   </div>
                 `;
@@ -787,6 +822,7 @@ const app = {
     const maxSize = parseInt(document.getElementById('createGroupMaxSize').value, 10);
     const budget = parseInt(document.getElementById('createGroupBudget').value, 10);
     const itinerary = document.getElementById('createGroupItinerary').value;
+    const activityLevel = document.getElementById('createGroupActivityLevel')?.value || 'Medium';
 
     const payload = {
       name: name,
@@ -796,7 +832,8 @@ const app = {
       check_out: checkOut,
       max_size: maxSize,
       budget_inr: budget,
-      itinerary: itinerary
+      itinerary: itinerary,
+      activity_level: activityLevel
     };
 
     const submitBtn = document.getElementById('publishGroupBtn');
@@ -814,6 +851,7 @@ const app = {
         this.showToast(`Group "${data.name}" created successfully!`, 'success');
         this.setRole('creator');
         await this.fetchAllGroups();
+        this.renderCreatorActivePosts();
         this.quickOpenCommonPage(data.group_id);
       } else {
         this.showToast(data.error || 'Failed to create group post', 'error');
@@ -846,6 +884,54 @@ const app = {
       document.getElementById('ghMembersCount').textContent = `${group.members?.length || 1} of ${group.max_size} Members`;
       document.getElementById('memberCountHeader').textContent = group.members?.length || 1;
 
+      // Feature 2: Display Activity Level in Hero
+      const actBadge = document.getElementById('ghActivityBadge');
+      if (actBadge) {
+        const act = group.activity_level || 'Medium';
+        actBadge.className = `activity-pill activity-${act.toLowerCase()}`;
+        actBadge.textContent = `⚡ ${act} Activity`;
+      }
+
+      // Feature 4: Creator actions in Hero (Edit Itinerary / Delete Trip)
+      const isOwner = this.state.currentTraveller && this.state.currentTraveller.traveller_id === group.owner_id;
+      const heroActions = document.getElementById('creatorGroupHeroActions');
+      if (heroActions) {
+        heroActions.style.display = isOwner ? 'flex' : 'none';
+      }
+
+      // Feature 5: Approved Seeker Dropout Control (Leave Group)
+      const isApprovedSeeker = this.state.currentTraveller && 
+        (group.member_ids || []).includes(this.state.currentTraveller.traveller_id) && 
+        (this.state.currentTraveller.traveller_id !== group.owner_id);
+      const dropoutContainer = document.getElementById('dropoutActionContainer');
+      if (dropoutContainer) {
+        dropoutContainer.style.display = isApprovedSeeker ? 'block' : 'none';
+      }
+
+      // Feature 5 Scenario B: Critical UI Warning Banner for remaining members absorbing cost
+      const dropoutBanner = document.getElementById('dropoutWarningBanner');
+      if (group.dropout_warning) {
+        const warn = group.dropout_warning;
+        if (dropoutBanner) {
+          dropoutBanner.style.display = 'block';
+          dropoutBanner.innerHTML = `
+            <div class="critical-dropout-banner-inner">
+              <div class="warning-icon">🚨</div>
+              <div class="warning-content">
+                <h4>CRITICAL BOOKING ALERT: Member Dropped Out</h4>
+                <p><strong>Warning: ${warn.dropped_user_name} dropped out!</strong> The hotel booking is already locked. The remaining <strong>${warn.remaining_count}</strong> member${warn.remaining_count > 1 ? 's' : ''} must now absorb the cost. Your updated per-person split is now <strong>₹${warn.new_split.toLocaleString('en-IN')}</strong>.</p>
+                <span class="warning-subtext">Original split was ₹${warn.original_split.toLocaleString('en-IN')} / member · Total locked stay cost: ₹${warn.total_cost.toLocaleString('en-IN')}</span>
+              </div>
+            </div>
+          `;
+        }
+      } else {
+        if (dropoutBanner) {
+          dropoutBanner.style.display = 'none';
+          dropoutBanner.innerHTML = '';
+        }
+      }
+
       // Update nav active badge
       const hubBadge = document.getElementById('groupHubBadge');
       if (hubBadge) hubBadge.style.display = 'inline-block';
@@ -854,8 +940,13 @@ const app = {
       const banner = document.getElementById('bookingConfirmedBanner');
       if (group.booking) {
         banner.style.display = 'flex';
-        document.getElementById('bookingConfirmedDetails').textContent = 
-          `Reference #${group.booking.booking_id} · ${group.booking.hotel_name} (${group.booking.room_name}) · Total ₹${group.booking.total_cost.toLocaleString('en-IN')} · Split: ₹${group.booking.per_member_cost.toLocaleString('en-IN')} per member`;
+        if (group.dropout_warning) {
+          document.getElementById('bookingConfirmedDetails').innerHTML = 
+            `Reference #${group.booking.booking_id} · ${group.booking.hotel_name} (${group.booking.room_name}) · Total ₹${group.booking.total_cost.toLocaleString('en-IN')} · <strong style="color:#b91c1c;">New Split: ₹${group.dropout_warning.new_split.toLocaleString('en-IN')} per member</strong> <span style="font-size:0.75rem; color:#dc2626;">(Adjusted after ${group.dropout_warning.dropped_user_name} dropped out)</span>`;
+        } else {
+          document.getElementById('bookingConfirmedDetails').textContent = 
+            `Reference #${group.booking.booking_id} · ${group.booking.hotel_name} (${group.booking.room_name}) · Total ₹${group.booking.total_cost.toLocaleString('en-IN')} · Split: ₹${group.booking.per_member_cost.toLocaleString('en-IN')} per member`;
+        }
       } else {
         banner.style.display = 'none';
       }
@@ -1029,7 +1120,7 @@ const app = {
       hotels.sort((a, b) => (b.votes.has_consensus ? 1 : 0) - (a.votes.has_consensus ? 1 : 0) || b.rating - a.rating);
     }
 
-    // Check overall consensus status for meter
+    // Check overall consensus status for meter (Feature 1: 60% Consensus Threshold)
     const bestConsensus = hotels.find(h => h.votes.has_consensus);
     const maxVotesPct = Math.max(0, ...hotels.map(h => h.votes.consensus_pct || 0));
 
@@ -1038,9 +1129,9 @@ const app = {
     const meterFill = document.getElementById('consensusMeterFill');
 
     if (bestConsensus) {
-      statusText.innerHTML = `🎉 <strong>100% Unanimous Consensus!</strong> Group agreed on ${bestConsensus.hotel_name}`;
-      statusPct.textContent = '100% agreed';
-      meterFill.style.width = '100%';
+      statusText.innerHTML = `🎉 <strong>Consensus Reached (${bestConsensus.votes.consensus_pct}%)!</strong> Group agreed on ${bestConsensus.hotel_name} (≥60% consensus)`;
+      statusPct.textContent = `${bestConsensus.votes.consensus_pct}% agreed`;
+      meterFill.style.width = `${bestConsensus.votes.consensus_pct}%`;
       meterFill.classList.add('consensus-complete');
 
       if (!this.state.hasCelebratedConsensus) {
@@ -1049,9 +1140,10 @@ const app = {
       }
     } else {
       this.state.hasCelebratedConsensus = false;
-      statusText.textContent = `🔒 Consensus: All ${group.members?.length || 1} members must upvote the same option to unlock booking`;
-      statusPct.textContent = `${maxVotesPct}% top vote`;
-      meterFill.style.width = `${maxVotesPct}%`;
+      const neededVotes = Math.ceil((group.members?.length || 1) * 0.6);
+      statusText.textContent = `🔒 Consensus: At least 60% of members must upvote the same option to unlock booking (Need ${neededVotes} of ${group.members?.length || 1})`;
+      statusPct.textContent = `${maxVotesPct}% / 60% needed`;
+      meterFill.style.width = `${Math.min(100, Math.round((maxVotesPct / 60) * 100))}%`;
       meterFill.classList.remove('consensus-complete');
     }
 
@@ -1075,7 +1167,7 @@ const app = {
         <article class="hotel-consensus-card ${isConsensus ? 'consensus-unlocked' : ''}">
           ${isConsensus ? `
             <div class="consensus-unlocked-ribbon">
-              <span>★</span> 100% Consensus Reached!
+              <span>★</span> Consensus Reached (${v.consensus_pct}%)!
             </div>
           ` : ''}
 
@@ -1116,7 +1208,7 @@ const app = {
             <!-- Member Voting Deck -->
             <div class="voting-deck-section">
               <div class="voting-deck-header">
-                <span>Member Consensus Alignment (${v.up_count}/${members.length} agreed):</span>
+                <span>Member Consensus Alignment (${v.up_count}/${members.length} agreed · 60% needed):</span>
                 <span>${v.consensus_pct}%</span>
               </div>
 
@@ -1176,7 +1268,7 @@ const app = {
                     Finalize Group Booking!
                   ` : `
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                    Locked (${v.up_count}/${members.length} Votes)
+                    Locked (${v.up_count}/${members.length} Votes · Need 60%)
                   `}
                 </button>
               `}
@@ -1377,6 +1469,9 @@ const app = {
       this.state.allGroups = groups || [];
       const countEl = document.getElementById('allGroupsCount');
       if (countEl) countEl.textContent = groups.length;
+      if (this.state.currentView === 'creator') {
+        this.renderCreatorActivePosts();
+      }
     } catch (e) {}
   },
 
@@ -1399,8 +1494,11 @@ const app = {
       return `
         <article class="match-card">
           <div class="card-top-bar">
-            <span class="card-city-pill">${g.city}</span>
-            <span style="font-size:0.75rem; color:var(--text-muted);">${g.check_in} to ${g.check_out}</span>
+            <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+              <span class="card-city-pill">${g.city}</span>
+              <span class="activity-pill activity-${(g.activity_level || 'Medium').toLowerCase()}">⚡ ${g.activity_level || 'Medium'}</span>
+            </div>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${g.check_in} to ${g.check_out}</span>
           </div>
           <div class="card-main-content">
             <h3 class="card-group-title">${g.name}</h3>
@@ -1708,6 +1806,234 @@ const app = {
       toast.style.transition = 'all 0.3s ease';
       setTimeout(() => toast.remove(), 300);
     }, 4000);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Feature 4: Creator Post Management (Active Posts, Edit, Delete)
+  // ---------------------------------------------------------------------------
+  renderCreatorActivePosts() {
+    const container = document.getElementById('creatorActivePostsList');
+    if (!container) return;
+
+    const currentId = this.state.currentTraveller?.traveller_id;
+    if (!currentId) {
+      container.innerHTML = '<p style="color:var(--text-muted); grid-column:1/-1;">Please select a creator profile to view your active trip posts.</p>';
+      return;
+    }
+
+    const myGroups = (this.state.allGroups || []).filter(g => g.owner_id === currentId && g.status !== 'CANCELLED');
+
+    if (myGroups.length === 0) {
+      container.innerHTML = `
+        <div style="grid-column: 1 / -1; background: white; border: 1px dashed var(--border-color); border-radius: var(--radius-md); padding: 2rem; text-align: center; color: var(--text-muted);">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">📝</div>
+          <strong style="color: var(--navy-dark); display:block; margin-bottom:0.25rem;">No active group posts yet for ${this.state.currentTraveller.name}</strong>
+          <span style="font-size:0.85rem;">Use the form above to publish your first group trip post!</span>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = myGroups.map(g => {
+      const act = g.activity_level || 'Medium';
+      const membersCount = g.member_ids?.length || 1;
+      return `
+        <article class="creator-post-card">
+          <div class="creator-post-top">
+            <div style="display:flex; align-items:center; gap:0.45rem; flex-wrap:wrap;">
+              <span class="card-city-pill">${g.city}</span>
+              <span class="activity-pill activity-${act.toLowerCase()}">⚡ ${act}</span>
+            </div>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">${g.check_in} to ${g.check_out}</span>
+          </div>
+
+          <h3 class="creator-post-title">${g.name}</h3>
+          <p class="creator-post-itinerary">${g.itinerary || 'No itinerary detailed yet.'}</p>
+
+          <div class="creator-post-meta">
+            <span><strong>Budget:</strong> ₹${g.budget_inr.toLocaleString('en-IN')} / person</span>
+            <span><strong>Capacity:</strong> ${membersCount} of ${g.max_size} members</span>
+          </div>
+
+          <div class="creator-post-actions">
+            <button class="btn-edit-post" onclick="app.openEditGroupModal('${g.group_id}')">
+              ✏️ Edit Itinerary
+            </button>
+            <button class="btn-delete-post" onclick="app.handleDeleteGroup('${g.group_id}')">
+              🗑️ Delete Trip
+            </button>
+            <button class="btn-secondary" style="margin-left:auto; font-size:0.8rem; padding:0.5rem 0.85rem;" onclick="app.quickOpenCommonPage('${g.group_id}')">
+              View Page →
+            </button>
+          </div>
+        </article>
+      `;
+    }).join('');
+  },
+
+  async openEditGroupModal(groupId) {
+    try {
+      const res = await fetch(`/api/groups/${groupId}`);
+      if (!res.ok) throw new Error('Failed to fetch group details');
+      const group = await res.json();
+
+      document.getElementById('editGroupId').value = group.group_id;
+      document.getElementById('editGroupName').value = group.name;
+      document.getElementById('editGroupCity').value = group.city;
+      document.getElementById('editGroupActivityLevel').value = group.activity_level || 'Medium';
+      document.getElementById('editGroupCheckIn').value = group.check_in;
+      document.getElementById('editGroupCheckOut').value = group.check_out;
+      document.getElementById('editGroupBudget').value = group.budget_inr;
+      document.getElementById('editGroupItinerary').value = group.itinerary || '';
+
+      const pendingCount = group.pending_requests_count || 0;
+      const warningEl = document.getElementById('editPendingWarning');
+      const cityEl = document.getElementById('editGroupCity');
+      const ciEl = document.getElementById('editGroupCheckIn');
+      const coEl = document.getElementById('editGroupCheckOut');
+      const cityHint = document.getElementById('editCityHint');
+
+      // Rule: Do not allow date/city changes if requests are already pending
+      if (pendingCount > 0) {
+        if (warningEl) warningEl.style.display = 'flex';
+        if (cityEl) cityEl.disabled = true;
+        if (ciEl) ciEl.disabled = true;
+        if (coEl) coEl.disabled = true;
+        if (cityHint) cityHint.textContent = `🔒 Locked (${pendingCount} pending join request${pendingCount > 1 ? 's' : ''})`;
+      } else {
+        if (warningEl) warningEl.style.display = 'none';
+        if (cityEl) cityEl.disabled = false;
+        if (ciEl) ciEl.disabled = false;
+        if (coEl) coEl.disabled = false;
+        if (cityHint) cityHint.textContent = 'Can be edited (0 requests pending)';
+      }
+
+      document.getElementById('editGroupModal').style.display = 'flex';
+    } catch (err) {
+      console.error('[EDIT MODAL] Error:', err);
+      this.showToast('Could not load group for editing', 'error');
+    }
+  },
+
+  async handleEditGroupSubmit(e) {
+    e.preventDefault();
+    const groupId = document.getElementById('editGroupId').value;
+    const name = document.getElementById('editGroupName').value.trim();
+    const city = document.getElementById('editGroupCity').value.trim();
+    const activityLevel = document.getElementById('editGroupActivityLevel').value;
+    const checkIn = document.getElementById('editGroupCheckIn').value;
+    const checkOut = document.getElementById('editGroupCheckOut').value;
+    const budget = parseInt(document.getElementById('editGroupBudget').value, 10);
+    const itinerary = document.getElementById('editGroupItinerary').value.trim();
+
+    const payload = {
+      owner_id: this.state.currentTraveller?.traveller_id,
+      name,
+      city,
+      activity_level: activityLevel,
+      check_in: checkIn,
+      check_out: checkOut,
+      budget_inr: budget,
+      itinerary
+    };
+
+    const saveBtn = document.getElementById('btnSaveGroupEdit');
+    if (saveBtn) saveBtn.disabled = true;
+
+    try {
+      const res = await fetch(`/api/groups/${groupId}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update group');
+      }
+
+      this.closeModal('editGroupModal');
+      this.showToast('Trip itinerary and details updated successfully!', 'success');
+
+      await this.fetchAllGroups();
+      if (this.state.currentView === 'creator') {
+        this.renderCreatorActivePosts();
+      }
+      if (this.state.activeGroupId === groupId) {
+        await this.loadGroupData(groupId);
+      }
+    } catch (err) {
+      console.error('[EDIT SUBMIT] Error:', err);
+      this.showToast(err.message, 'error');
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  },
+
+  async handleDeleteGroup(groupId) {
+    if (!window.confirm('Are you sure you want to cancel and delete this trip? All tied join requests will be cancelled and marked as REJECTED.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/groups/${groupId}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: this.state.currentTraveller?.traveller_id })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete trip');
+      }
+
+      this.showToast('This group trip was cancelled by the creator. Tied requests rejected.', 'warning');
+      await this.fetchAllGroups();
+
+      if (this.state.currentView === 'creator') {
+        this.renderCreatorActivePosts();
+      }
+      if (this.state.activeGroupId === groupId) {
+        this.showView('allGroups');
+      }
+    } catch (err) {
+      console.error('[DELETE GROUP] Error:', err);
+      this.showToast(err.message, 'error');
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Feature 5: The "Last-Minute Dropout" Handler (Leave Group)
+  // ---------------------------------------------------------------------------
+  async handleDropoutClick() {
+    if (!this.state.activeGroupId || !this.state.currentTraveller) return;
+    const groupName = this.state.activeGroupData?.name || 'this group';
+
+    if (!window.confirm(`Are you sure you want to drop out / leave "${groupName}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/groups/${this.state.activeGroupId}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ traveller_id: this.state.currentTraveller.traveller_id })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to drop out');
+      }
+
+      if (data.scenario === 'AFTER_BOOKING') {
+        this.showToast(data.message, 'warning');
+      } else {
+        this.showToast(data.message || 'You have left the group. Per-person costs updated.', 'info');
+      }
+
+      await this.fetchAllGroups();
+      await this.loadGroupData(this.state.activeGroupId);
+    } catch (err) {
+      console.error('[DROPOUT] Error:', err);
+      this.showToast(err.message, 'error');
+    }
   },
 
   // ---------------------------------------------------------------------------

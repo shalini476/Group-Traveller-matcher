@@ -157,6 +157,8 @@ def init_db():
             max_size INTEGER NOT NULL,
             budget_inr INTEGER NOT NULL,
             itinerary TEXT NOT NULL,
+            activity_level TEXT NOT NULL DEFAULT 'Medium',
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
             created_at TEXT NOT NULL
         )
     """)
@@ -166,7 +168,7 @@ def init_db():
             request_id TEXT PRIMARY KEY,
             group_id TEXT NOT NULL,
             seeker_id TEXT NOT NULL,
-            status TEXT NOT NULL, -- PENDING, APPROVED, REJECTED
+            status TEXT NOT NULL, -- PENDING, APPROVED, REJECTED, DROPPED_OUT
             message TEXT,
             created_at TEXT NOT NULL
         )
@@ -210,6 +212,44 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS group_dropouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id TEXT NOT NULL,
+            traveller_id TEXT NOT NULL,
+            traveller_name TEXT NOT NULL,
+            dropped_at TEXT NOT NULL,
+            booking_id TEXT,
+            original_split INTEGER NOT NULL,
+            new_split INTEGER NOT NULL,
+            remaining_members_count INTEGER NOT NULL
+        )
+    """)
+    conn.commit()
+
+    # Migration for groups table columns (activity_level and status)
+    cur.execute("PRAGMA table_info(groups)")
+    existing_cols = [c["name"] for c in cur.fetchall()]
+    if "activity_level" not in existing_cols:
+        print("[DB] Migrating groups: adding activity_level column...")
+        cur.execute("ALTER TABLE groups ADD COLUMN activity_level TEXT NOT NULL DEFAULT 'Medium'")
+        conn.commit()
+    if "status" not in existing_cols:
+        print("[DB] Migrating groups: adding status column...")
+        cur.execute("ALTER TABLE groups ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'")
+        conn.commit()
+
+    # Backfill activity levels for pre-seeded groups if needed
+    cur.execute("UPDATE groups SET activity_level = 'Medium' WHERE activity_level IS NULL OR activity_level = ''")
+    cur.execute("UPDATE groups SET status = 'ACTIVE' WHERE status IS NULL OR status = ''")
+    # Specific realistic assignments for sample groups
+    cur.execute("UPDATE groups SET activity_level = 'Medium' WHERE group_id = 'G-01'")
+    cur.execute("UPDATE groups SET activity_level = 'Easy' WHERE group_id = 'G-02'")
+    cur.execute("UPDATE groups SET activity_level = 'Hard' WHERE group_id = 'G-03'")
+    cur.execute("UPDATE groups SET activity_level = 'Easy' WHERE group_id = 'G-04'")
+    cur.execute("UPDATE groups SET activity_level = 'Medium' WHERE group_id = 'G-05'")
+    cur.execute("UPDATE groups SET activity_level = 'Hard' WHERE group_id = 'G-06'")
     conn.commit()
 
     # Pre-seed travellers if empty
@@ -239,8 +279,8 @@ def init_db():
         now_str = datetime.datetime.now().isoformat()
         for g in CATALOG["groups"]:
             cur.execute("""
-                INSERT INTO groups (group_id, name, owner_id, member_ids, city, check_in, check_out, max_size, budget_inr, itinerary, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO groups (group_id, name, owner_id, member_ids, city, check_in, check_out, max_size, budget_inr, itinerary, activity_level, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
             """, (
                 g["group_id"],
                 g["name"],
@@ -252,6 +292,7 @@ def init_db():
                 g["max_size"],
                 g["budget_inr"],
                 g.get("itinerary", ""),
+                g.get("activity_level", "Medium"),
                 now_str
             ))
         conn.commit()
@@ -675,14 +716,16 @@ def get_group_hotel_options(group_id):
             upvoter_ids = room_votes["up"]
             downvoter_ids = room_votes["down"]
 
-            # Consensus reached when ALL group members have upvoted this exact room
+            # Approved members who upvoted
+            approved_upvoters = [m for m in member_ids if m in upvoter_ids]
+            consensus_pct = int(round((len(approved_upvoters) / len(member_ids)) * 100)) if member_ids else 0
+
+            # Feature 1: 60% Consensus Threshold for Booking
+            # Option reaches consensus and unlocks booking if at least 60% of approved group members have upvoted
             has_consensus = (
                 len(member_ids) > 0 and 
-                all(m in upvoter_ids for m in member_ids)
+                (consensus_pct >= 60 or (len(approved_upvoters) / len(member_ids)) >= 0.60)
             )
-
-            # Consensus progress percentage
-            consensus_pct = int(round((len(upvoter_ids) / len(member_ids)) * 100)) if member_ids else 0
 
             options.append({
                 "hotel_id": hid,
@@ -707,10 +750,11 @@ def get_group_hotel_options(group_id):
                 "votes": {
                     "upvoter_ids": upvoter_ids,
                     "downvoter_ids": downvoter_ids,
-                    "up_count": len(upvoter_ids),
-                    "down_count": len(downvoter_ids),
+                    "up_count": len(approved_upvoters),
+                    "down_count": len([m for m in member_ids if m in downvoter_ids]),
                     "consensus_pct": consensus_pct,
-                    "has_consensus": has_consensus
+                    "has_consensus": has_consensus,
+                    "threshold_pct": 60
                 }
             })
 
@@ -729,7 +773,7 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
 
     def send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
     def do_OPTIONS(self):
@@ -863,6 +907,18 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
             self.handle_seeker_match()
         elif path == "/api/groups/join":
             self.handle_join_request()
+        elif re.match(r"^/api/groups/([^/]+)/edit$", path):
+            group_id = re.match(r"^/api/groups/([^/]+)/edit$", path).group(1)
+            self.handle_edit_group(group_id)
+        elif re.match(r"^/api/groups/([^/]+)/delete$", path):
+            group_id = re.match(r"^/api/groups/([^/]+)/delete$", path).group(1)
+            self.handle_delete_group(group_id)
+        elif re.match(r"^/api/groups/([^/]+)/leave$", path):
+            group_id = re.match(r"^/api/groups/([^/]+)/leave$", path).group(1)
+            self.handle_leave_group(group_id)
+        elif re.match(r"^/api/groups/([^/]+)/dropout$", path):
+            group_id = re.match(r"^/api/groups/([^/]+)/dropout$", path).group(1)
+            self.handle_leave_group(group_id)
         elif re.match(r"^/api/groups/([^/]+)/requests/decide$", path):
             group_id = re.match(r"^/api/groups/([^/]+)/requests/decide$", path).group(1)
             self.handle_request_decision(group_id)
@@ -877,6 +933,24 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
             self.handle_send_chat(group_id)
         else:
             self.send_error_json(404, f"Unknown POST route: {path}")
+
+    def do_PUT(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        m = re.match(r"^/api/groups/([^/]+)$", path)
+        if m:
+            self.handle_edit_group(m.group(1))
+        else:
+            self.send_error_json(404, f"Unknown PUT route: {path}")
+
+    def do_DELETE(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        m = re.match(r"^/api/groups/([^/]+)$", path)
+        if m:
+            self.handle_delete_group(m.group(1))
+        else:
+            self.send_error_json(404, f"Unknown DELETE route: {path}")
 
     # -------------------------------------------------------------------------
     # API Implementation Handlers
@@ -969,11 +1043,14 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         conn = get_db()
         cur = conn.cursor()
         city = query.get("city", [None])[0]
+        owner_id = query.get("owner_id", [None])[0]
 
-        if city:
-            cur.execute("SELECT * FROM groups WHERE LOWER(city) = LOWER(?) ORDER BY check_in ASC", (city,))
+        if owner_id:
+            cur.execute("SELECT * FROM groups WHERE owner_id = ? AND (status IS NULL OR status != 'CANCELLED') ORDER BY created_at DESC", (owner_id,))
+        elif city:
+            cur.execute("SELECT * FROM groups WHERE LOWER(city) = LOWER(?) AND (status IS NULL OR status != 'CANCELLED') ORDER BY check_in ASC", (city,))
         else:
-            cur.execute("SELECT * FROM groups ORDER BY check_in ASC")
+            cur.execute("SELECT * FROM groups WHERE (status IS NULL OR status != 'CANCELLED') ORDER BY check_in ASC")
         rows = cur.fetchall()
 
         # Load all owners for display enrichment
@@ -995,7 +1072,7 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         self.send_json(200, groups)
 
     def handle_create_group(self):
-        """M2: Group Owner Creates a Post."""
+        """M2: Group Owner Creates a Post with Activity Level."""
         body = self.parse_json_body()
         if not body:
             self.send_error_json(400, "Invalid JSON payload")
@@ -1009,6 +1086,7 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         max_size = int(body.get("max_size", 3))
         budget_inr = int(body.get("budget_inr", 60000))
         itinerary = body.get("itinerary", "").strip()
+        activity_level = body.get("activity_level", "Medium").strip()
 
         # Validations
         if not name or not owner_id or not city:
@@ -1033,6 +1111,9 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
             self.send_error_json(400, "Group size must be between 1 and 4.")
             return
 
+        if activity_level not in ("Easy", "Medium", "Hard"):
+            activity_level = "Medium"
+
         conn = get_db()
         cur = conn.cursor()
 
@@ -1051,9 +1132,9 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         initial_members = [owner_id]
 
         cur.execute("""
-            INSERT INTO groups (group_id, name, owner_id, member_ids, city, check_in, check_out, max_size, budget_inr, itinerary, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (group_id, name, owner_id, json.dumps(initial_members), city, check_in, check_out, max_size, budget_inr, itinerary, now_str))
+            INSERT INTO groups (group_id, name, owner_id, member_ids, city, check_in, check_out, max_size, budget_inr, itinerary, activity_level, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+        """, (group_id, name, owner_id, json.dumps(initial_members), city, check_in, check_out, max_size, budget_inr, itinerary, activity_level, now_str))
         conn.commit()
 
         cur.execute("SELECT * FROM groups WHERE group_id = ?", (group_id,))
@@ -1064,6 +1145,238 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         created["owner"] = owner_dict
 
         conn.close()
+        self.send_json(201, created)
+
+    def handle_edit_group(self, group_id):
+        """
+        Feature 4: Creator Post Management (Edit Itinerary, Budget, Activity Level).
+        Prevents date and city changes if join requests are already pending.
+        """
+        body = self.parse_json_body() or {}
+        owner_id = body.get("owner_id", "").strip()
+        name = body.get("name", "").strip()
+        itinerary = body.get("itinerary", "").strip()
+        budget_inr = body.get("budget_inr")
+        activity_level = body.get("activity_level", "").strip()
+        city = body.get("city", "").strip()
+        check_in = body.get("check_in", "").strip()
+        check_out = body.get("check_out", "").strip()
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT * FROM groups WHERE group_id = ?", (group_id,))
+        grow = cur.fetchone()
+        if not grow:
+            conn.close()
+            self.send_error_json(404, "Group not found")
+            return
+
+        group = dict(grow)
+
+        # Verify creator ownership if provided
+        if owner_id and group["owner_id"] != owner_id:
+            conn.close()
+            self.send_error_json(403, "Only the group creator can edit this post.")
+            return
+
+        # Check pending requests count
+        cur.execute("SELECT COUNT(*) FROM join_requests WHERE group_id = ? AND status = 'PENDING'", (group_id,))
+        pending_count = cur.fetchone()[0]
+
+        # Rule: Do not allow date/city changes if requests are already pending
+        if pending_count > 0:
+            if city and city.lower() != group["city"].lower():
+                conn.close()
+                self.send_error_json(400, "Cannot change destination city while join requests are pending.")
+                return
+            if check_in and check_in != group["check_in"]:
+                conn.close()
+                self.send_error_json(400, "Cannot change check-in date while join requests are pending.")
+                return
+            if check_out and check_out != group["check_out"]:
+                conn.close()
+                self.send_error_json(400, "Cannot change check-out date while join requests are pending.")
+                return
+
+        updated_name = name if name else group["name"]
+        updated_itinerary = itinerary if itinerary else group["itinerary"]
+        updated_budget = int(budget_inr) if (budget_inr is not None and str(budget_inr).isdigit()) else group["budget_inr"]
+        updated_activity = activity_level if activity_level in ("Easy", "Medium", "Hard") else group.get("activity_level", "Medium")
+        updated_city = city if (city and pending_count == 0 and city in VALID_CITIES) else group["city"]
+        updated_ci = check_in if (check_in and pending_count == 0) else group["check_in"]
+        updated_co = check_out if (check_out and pending_count == 0) else group["check_out"]
+
+        cur.execute("""
+            UPDATE groups
+            SET name = ?, itinerary = ?, budget_inr = ?, activity_level = ?, city = ?, check_in = ?, check_out = ?
+            WHERE group_id = ?
+        """, (updated_name, updated_itinerary, updated_budget, updated_activity, updated_city, updated_ci, updated_co, group_id))
+        conn.commit()
+
+        cur.execute("SELECT * FROM groups WHERE group_id = ?", (group_id,))
+        updated = dict(cur.fetchone())
+        updated["member_ids"] = json.loads(updated["member_ids"])
+        conn.close()
+
+        self.send_json(200, {
+            "success": True,
+            "group": updated,
+            "message": "Group details and itinerary updated successfully."
+        })
+
+    def handle_delete_group(self, group_id):
+        """
+        Feature 4: Creator Post Management (Delete Trip).
+        Removes trip from active listings and cascades status update to all tied
+        join requests to 'REJECTED' with note: 'This group trip was cancelled by the creator.'
+        """
+        body = self.parse_json_body() or {}
+        owner_id = body.get("owner_id", "").strip()
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT * FROM groups WHERE group_id = ?", (group_id,))
+        grow = cur.fetchone()
+        if not grow:
+            conn.close()
+            self.send_error_json(404, "Group not found")
+            return
+
+        group = dict(grow)
+        if owner_id and group["owner_id"] != owner_id:
+            conn.close()
+            self.send_error_json(403, "Only the group creator can delete this trip.")
+            return
+
+        # Mark group as CANCELLED (removed from active listings)
+        cur.execute("UPDATE groups SET status = 'CANCELLED' WHERE group_id = ?", (group_id,))
+
+        # Cascade status update to all tied join requests to 'REJECTED'
+        cancel_note = "This group trip was cancelled by the creator."
+        cur.execute("""
+            UPDATE join_requests
+            SET status = 'REJECTED', message = ?
+            WHERE group_id = ?
+        """, (cancel_note, group_id))
+
+        conn.commit()
+        conn.close()
+
+        self.send_json(200, {
+            "success": True,
+            "group_id": group_id,
+            "message": "This group trip was cancelled by the creator. Tied requests updated to REJECTED."
+        })
+
+    def handle_leave_group(self, group_id):
+        """
+        Feature 5: The 'Last-Minute Dropout' Handler (Leave Group).
+        Scenario A (Before Booking Finalized): Removes member ID, decrements size,
+        and dynamically recalculates per-person costs.
+        Scenario B (After Booking Finalized): Removes member from active member list,
+        and generates a critical UI Warning banner for remaining members absorbing the cost.
+        """
+        body = self.parse_json_body() or {}
+        traveller_id = body.get("traveller_id", "").strip()
+
+        if not traveller_id:
+            self.send_error_json(400, "traveller_id is required")
+            return
+
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT * FROM groups WHERE group_id = ?", (group_id,))
+        grow = cur.fetchone()
+        if not grow:
+            conn.close()
+            self.send_error_json(404, "Group not found")
+            return
+
+        group = dict(grow)
+        members = json.loads(group["member_ids"])
+
+        if traveller_id not in members:
+            conn.close()
+            self.send_error_json(400, "Traveller is not a member of this group.")
+            return
+
+        if traveller_id == group["owner_id"]:
+            conn.close()
+            self.send_error_json(400, "Group creator cannot drop out. Please use 'Delete Trip' to cancel the post.")
+            return
+
+        # Fetch traveller name
+        cur.execute("SELECT name FROM travellers WHERE traveller_id = ?", (traveller_id,))
+        trow = cur.fetchone()
+        traveller_name = trow["name"] if trow else traveller_id
+
+        # Remove traveller from group member_ids
+        remaining_members = [m for m in members if m != traveller_id]
+        cur.execute("UPDATE groups SET member_ids = ? WHERE group_id = ?", (json.dumps(remaining_members), group_id))
+
+        # Clear hotel votes for this traveller in this group
+        cur.execute("DELETE FROM hotel_votes WHERE group_id = ? AND traveller_id = ?", (group_id, traveller_id))
+
+        # Update join request record
+        cur.execute("""
+            UPDATE join_requests
+            SET status = 'DROPPED_OUT', message = 'Member dropped out of group.'
+            WHERE group_id = ? AND seeker_id = ?
+        """, (group_id, traveller_id))
+
+        # Check if booking has already been finalized (Scenario A vs B)
+        cur.execute("SELECT * FROM group_bookings WHERE group_id = ?", (group_id,))
+        brow = cur.fetchone()
+        now_str = datetime.datetime.now().isoformat()
+
+        if brow:
+            # Scenario B: After Booking Finalized
+            booking = dict(brow)
+            total_cost = booking["total_cost"]
+            remaining_count = max(1, len(remaining_members))
+            new_split = int(round(total_cost / remaining_count))
+
+            cur.execute("""
+                INSERT INTO group_dropouts (group_id, traveller_id, traveller_name, dropped_at, booking_id, original_split, new_split, remaining_members_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (group_id, traveller_id, traveller_name, now_str, booking["booking_id"], booking["per_member_cost"], new_split, remaining_count))
+            conn.commit()
+
+            warning_msg = f"Warning: {traveller_name} dropped out! The hotel booking is already locked. The remaining {remaining_count} members must now absorb the cost. Your updated per-person split is now ₹{new_split:,}."
+
+            dropout_warning = {
+                "dropped_user_name": traveller_name,
+                "dropped_user_id": traveller_id,
+                "remaining_count": remaining_count,
+                "new_split": new_split,
+                "original_split": booking["per_member_cost"],
+                "total_cost": total_cost,
+                "message": warning_msg
+            }
+            conn.close()
+
+            self.send_json(200, {
+                "success": True,
+                "scenario": "AFTER_BOOKING",
+                "dropout_warning": dropout_warning,
+                "remaining_members_count": remaining_count,
+                "new_per_person_split": new_split,
+                "message": warning_msg
+            })
+        else:
+            # Scenario A: Before Booking Finalized
+            conn.commit()
+            conn.close()
+
+            self.send_json(200, {
+                "success": True,
+                "scenario": "BEFORE_BOOKING",
+                "remaining_members_count": len(remaining_members),
+                "message": f"{traveller_name} dropped out of the group. Dynamic per-person costs recalculated for remaining members."
+            })
         self.send_json(201, created)
 
     def handle_seeker_match(self):
@@ -1130,7 +1443,7 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
                     "message": sr["message"]
                 }
 
-        cur.execute("SELECT * FROM groups")
+        cur.execute("SELECT * FROM groups WHERE (status IS NULL OR status != 'CANCELLED')")
         group_rows = cur.fetchall()
 
         cur.execute("SELECT * FROM travellers")
@@ -1427,6 +1740,23 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         brow = cur.fetchone()
         group["booking"] = dict(brow) if brow else None
 
+        # Check if any member dropped out after booking was finalized (Feature 5)
+        if brow:
+            cur.execute("SELECT * FROM group_dropouts WHERE group_id = ? ORDER BY id DESC LIMIT 1", (group_id,))
+            drow = cur.fetchone()
+            if drow:
+                remaining_count = max(1, len(member_ids))
+                new_split = int(round(brow["total_cost"] / remaining_count))
+                group["dropout_warning"] = {
+                    "dropped_user_name": drow["traveller_name"],
+                    "dropped_user_id": drow["traveller_id"],
+                    "remaining_count": remaining_count,
+                    "new_split": new_split,
+                    "original_split": brow["per_member_cost"],
+                    "total_cost": brow["total_cost"],
+                    "message": f"Warning: {drow['traveller_name']} dropped out! The hotel booking is already locked. The remaining {remaining_count} members must now absorb the cost. Your updated per-person split is now ₹{new_split:,}."
+                }
+
         # Fetch pending requests count
         cur.execute("SELECT COUNT(*) FROM join_requests WHERE group_id = ? AND status = 'PENDING'", (group_id,))
         group["pending_requests_count"] = cur.fetchone()[0]
@@ -1446,6 +1776,7 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         """
         WOW FACTOR: Tinder-style Hotel Voting System.
         Approved members vote up (+1) or down (-1) on hotel room options.
+        Feature 1: 60% Consensus Threshold unlocks booking.
         """
         body = self.parse_json_body()
         if not body:
@@ -1487,9 +1818,12 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         """, (group_id, room_id, traveller_id, vote, now_str))
         conn.commit()
 
-        # Check if unanimous consensus is reached on this room
+        # Check if 60% consensus is reached on this room
         cur.execute("SELECT traveller_id FROM hotel_votes WHERE group_id = ? AND room_id = ? AND vote = 1", (group_id, room_id))
         upvoters = [r[0] for r in cur.fetchall()]
+        approved_upvoters = [m for m in members if m in upvoters]
+        consensus_pct = int(round((len(approved_upvoters) / len(members)) * 100)) if members else 0
+        consensus_reached = (len(members) > 0 and (consensus_pct >= 60 or (len(approved_upvoters) / len(members)) >= 0.60))
         all_agreed = all(m in upvoters for m in members)
 
         conn.close()
@@ -1498,15 +1832,18 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
             "success": True,
             "room_id": room_id,
             "vote": vote,
-            "upvoters_count": len(upvoters),
+            "upvoters_count": len(approved_upvoters),
             "members_count": len(members),
+            "consensus_pct": consensus_pct,
+            "has_consensus": consensus_reached,
             "unanimous_consensus": all_agreed,
-            "message": "Vote recorded. 100% unanimous consensus unlocked!" if all_agreed else "Vote recorded."
+            "message": f"Vote recorded. Consensus reached ({consensus_pct}%) – booking unlocked!" if consensus_reached else "Vote recorded."
         })
 
     def handle_finalize_booking(self, group_id):
         """
         M6 & WOW FACTOR: Finalizes group booking when consensus is reached.
+        Requires at least 60% member consensus for the chosen hotel room option.
         """
         body = self.parse_json_body() or {}
         room_id = body.get("room_id")
@@ -1536,6 +1873,12 @@ class GroupMatcherHandler(BaseHTTPRequestHandler):
         if not selected_option:
             conn.close()
             self.send_error_json(400, "Hotel room option not found or no longer available.")
+            return
+
+        # Verify 60% consensus threshold
+        if not selected_option.get("votes", {}).get("has_consensus"):
+            conn.close()
+            self.send_error_json(400, "Cannot finalize booking: 60% consensus threshold has not been reached for this room option.")
             return
 
         # Generate unique booking ID
